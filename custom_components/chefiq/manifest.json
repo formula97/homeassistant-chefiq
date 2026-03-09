@@ -1,0 +1,18 @@
+{
+  "domain": "chefiq",
+  "name": "Chef iQ",
+  "version": "1.0.0",
+  "codeowners": [],
+  "dependencies": ["bluetooth"],
+  "documentation": "https://github.com/formula97/homeassistant-chefiq",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "requirements": [],
+  "bluetooth": [
+    {
+      "local_name": "CQ60",
+      "manufacturer_id": 1485
+    }
+  ],
+  "config_flow": true
+}
