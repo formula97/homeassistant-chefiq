@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth.passive_update_processor import (
@@ -26,7 +27,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP, parse_advertisement
+from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -78,6 +79,15 @@ _AVERAGE_DESCRIPTION = SensorEntityDescription(
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
 )
 
+# Coldest point across tip and all zones — the food safety reading.
+_MINIMUM_DESCRIPTION = SensorEntityDescription(
+    key="temperature_minimum",
+    name="Probe Minimum",
+    device_class=SensorDeviceClass.TEMPERATURE,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+)
+
 # Sensor populated from status packet parser output.
 _BATTERY_DESCRIPTION = SensorEntityDescription(
     key="battery",
@@ -100,26 +110,16 @@ _AVERAGE_KEYS = (
 _ALL_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     **_TEMPERATURE_DESCRIPTIONS,
     _AVERAGE_DESCRIPTION.key: _AVERAGE_DESCRIPTION,
+    _MINIMUM_DESCRIPTION.key: _MINIMUM_DESCRIPTION,
     _BATTERY_DESCRIPTION.key: _BATTERY_DESCRIPTION,
 }
 
 
-def _passthrough_update(
-    update: PassiveBluetoothDataUpdate,
+def _sensor_update(
+    coordinator_data: tuple[bluetooth.BluetoothServiceInfoBleak, dict[str, Any] | None],
 ) -> PassiveBluetoothDataUpdate:
-    """Return the update unchanged.
-
-    PassiveBluetoothDataProcessor requires a callable to transform updates.
-    All transformation is already done in _parse_update, so this is a no-op.
-    """
-    return update
-
-
-def _parse_update(
-    service_info: bluetooth.BluetoothServiceInfoBleak,
-) -> PassiveBluetoothDataUpdate:
-    """Parse a BLE advertisement into a PassiveBluetoothDataUpdate."""
-    parsed = parse_advertisement(service_info.manufacturer_data)
+    """Build a sensor PassiveBluetoothDataUpdate from coordinator data."""
+    service_info, parsed = coordinator_data
 
     entity_descriptions: dict[PassiveBluetoothEntityKey, SensorEntityDescription] = {}
     entity_data: dict[PassiveBluetoothEntityKey, float | None] = {}
@@ -141,6 +141,12 @@ def _parse_update(
         entity_data[avg_key] = (
             round(sum(avg_values) / len(avg_values), 1) if len(avg_values) >= 2 else None
         )
+
+        # Coldest point across tip and all zones — ensures the minimum reading meets
+        # the target temperature, not just the average (food safety).
+        min_key = PassiveBluetoothEntityKey(_MINIMUM_DESCRIPTION.key, None)
+        entity_descriptions[min_key] = _MINIMUM_DESCRIPTION
+        entity_data[min_key] = min(avg_values) if avg_values else None
 
     elif parsed and parsed.get("packet_type") == PACKET_TYPE_STATUS:
         if "battery" in parsed:
@@ -169,25 +175,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Chef iQ sensors from a config entry."""
-    address: str = entry.data[CONF_ADDRESS]
+    coordinator: PassiveBluetoothProcessorCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    coordinator = PassiveBluetoothProcessorCoordinator(
-        hass,
-        _LOGGER,
-        address=address,
-        mode=bluetooth.BluetoothScanningMode.PASSIVE,
-        update_method=_parse_update,
-    )
-
-    processor = PassiveBluetoothDataProcessor(_passthrough_update)
+    processor = PassiveBluetoothDataProcessor(_sensor_update)
 
     entry.async_on_unload(
         coordinator.async_register_processor(processor, SensorEntityDescription)
     )
-    entry.async_on_unload(coordinator.async_start())
 
     async_add_entities(
-        ChefIQSensor(processor, description, address)
+        ChefIQSensor(processor, description, entry.data[CONF_ADDRESS])
         for description in _ALL_DESCRIPTIONS.values()
     )
 
