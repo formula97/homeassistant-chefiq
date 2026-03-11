@@ -42,28 +42,28 @@ _TEMPERATURE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     ),
     "temperature_probe_1": SensorEntityDescription(
         key="temperature_probe_1",
-        name="Probe Tip",
+        name="Tip",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_2": SensorEntityDescription(
         key="temperature_probe_2",
-        name="Probe Zone 1",
+        name="Zone 1",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_3": SensorEntityDescription(
         key="temperature_probe_3",
-        name="Probe Zone 2",
+        name="Zone 2",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_4": SensorEntityDescription(
         key="temperature_probe_4",
-        name="Probe Zone 3",
+        name="Zone 3",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -73,7 +73,7 @@ _TEMPERATURE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
 # Computed average of the four probe zone temperatures.
 _AVERAGE_DESCRIPTION = SensorEntityDescription(
     key="temperature_average",
-    name="Probe Average",
+    name="Average",
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -82,7 +82,7 @@ _AVERAGE_DESCRIPTION = SensorEntityDescription(
 # Coldest point across tip and all zones — the food safety reading.
 _MINIMUM_DESCRIPTION = SensorEntityDescription(
     key="temperature_minimum",
-    name="Probe Minimum",
+    name="Minimum",
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -204,7 +204,12 @@ class ChefIQSensor(PassiveBluetoothProcessorEntity, SensorEntity):
             PassiveBluetoothEntityKey(description.key, None),
             description,
         )
-        self._attr_unique_id = f"{address}_{description.key}"
+        self._address = address
+
+    @property
+    def unique_id(self) -> str:
+        """Return a unique ID for this entity."""
+        return f"{self._address}-{self.entity_description.key}"
 
     @property
     def native_value(self) -> float | None:
