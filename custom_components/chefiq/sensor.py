@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth.passive_update_processor import (
@@ -26,7 +27,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP, parse_advertisement
+from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,28 +42,28 @@ _TEMPERATURE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
     ),
     "temperature_probe_1": SensorEntityDescription(
         key="temperature_probe_1",
-        name="Tip",
+        name="Probe Tip",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_2": SensorEntityDescription(
         key="temperature_probe_2",
-        name="Zone 1",
+        name="Probe Zone 1",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_3": SensorEntityDescription(
         key="temperature_probe_3",
-        name="Zone 2",
+        name="Probe Zone 2",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
     "temperature_probe_4": SensorEntityDescription(
         key="temperature_probe_4",
-        name="Zone 3",
+        name="Probe Zone 3",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -72,7 +73,7 @@ _TEMPERATURE_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
 # Computed average of the four probe zone temperatures.
 _AVERAGE_DESCRIPTION = SensorEntityDescription(
     key="temperature_average",
-    name="Average",
+    name="Probe Average",
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -81,7 +82,7 @@ _AVERAGE_DESCRIPTION = SensorEntityDescription(
 # Coldest point across tip and all zones — the food safety reading.
 _MINIMUM_DESCRIPTION = SensorEntityDescription(
     key="temperature_minimum",
-    name="Minimum",
+    name="Probe Minimum",
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -97,7 +98,7 @@ _BATTERY_DESCRIPTION = SensorEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
-# Keys used to compute the probe average and minimum (all four zones).
+# Keys used to compute the probe average (all four zones).
 _AVERAGE_KEYS = (
     "temperature_probe_1",
     "temperature_probe_2",
@@ -114,22 +115,11 @@ _ALL_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
 }
 
 
-def _passthrough_update(
-    update: PassiveBluetoothDataUpdate,
+def _sensor_update(
+    coordinator_data: tuple[bluetooth.BluetoothServiceInfoBleak, dict[str, Any] | None],
 ) -> PassiveBluetoothDataUpdate:
-    """Return the update unchanged.
-
-    PassiveBluetoothDataProcessor requires a callable to transform updates.
-    All transformation is already done in _parse_update, so this is a no-op.
-    """
-    return update
-
-
-def _parse_update(
-    service_info: bluetooth.BluetoothServiceInfoBleak,
-) -> PassiveBluetoothDataUpdate:
-    """Parse a BLE advertisement into a PassiveBluetoothDataUpdate."""
-    parsed = parse_advertisement(service_info.manufacturer_data)
+    """Build a sensor PassiveBluetoothDataUpdate from coordinator data."""
+    service_info, parsed = coordinator_data
 
     entity_descriptions: dict[PassiveBluetoothEntityKey, SensorEntityDescription] = {}
     entity_data: dict[PassiveBluetoothEntityKey, float | None] = {}
@@ -185,25 +175,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Chef iQ sensors from a config entry."""
-    address: str = entry.data[CONF_ADDRESS]
+    coordinator: PassiveBluetoothProcessorCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    coordinator = PassiveBluetoothProcessorCoordinator(
-        hass,
-        _LOGGER,
-        address=address,
-        mode=bluetooth.BluetoothScanningMode.PASSIVE,
-        update_method=_parse_update,
-    )
-
-    processor = PassiveBluetoothDataProcessor(_passthrough_update)
+    processor = PassiveBluetoothDataProcessor(_sensor_update)
 
     entry.async_on_unload(
         coordinator.async_register_processor(processor, SensorEntityDescription)
     )
-    entry.async_on_unload(coordinator.async_start())
 
     async_add_entities(
-        ChefIQSensor(processor, description, address)
+        ChefIQSensor(processor, description, entry.data[CONF_ADDRESS])
         for description in _ALL_DESCRIPTIONS.values()
     )
 
@@ -223,12 +204,7 @@ class ChefIQSensor(PassiveBluetoothProcessorEntity, SensorEntity):
             PassiveBluetoothEntityKey(description.key, None),
             description,
         )
-        self._address = address
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique ID for this entity."""
-        return f"{self._address}-{self.entity_description.key}"
+        self._attr_unique_id = f"{address}_{description.key}"
 
     @property
     def native_value(self) -> float | None:

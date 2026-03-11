@@ -81,7 +81,7 @@ To identify which physical probe corresponds to which entry, check the label on 
 - This integration uses **passive Bluetooth scanning only** — the probe never needs to be paired or connected
 - Temperature updates arrive approximately every 1–5 seconds
 - Battery level updates arrive approximately every 5–8 seconds
-- Sensors show as unavailable if a probe zone returns no reading
+- Sensors show as unavailable if a probe zone returns no reading (e.g. a zone beyond insertion depth)
 - The Probe Average sensor requires at least 2 valid zone readings to compute; it shows unavailable otherwise
 
 ---
