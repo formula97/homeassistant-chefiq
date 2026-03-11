@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth.passive_update_processor import (
@@ -27,7 +26,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP
+from .parser import PACKET_TYPE_STATUS, PACKET_TYPE_TEMP, parse_advertisement
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -98,7 +97,7 @@ _BATTERY_DESCRIPTION = SensorEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
 )
 
-# Keys used to compute the probe average (all four zones).
+# Keys used to compute the probe average and minimum (all four zones).
 _AVERAGE_KEYS = (
     "temperature_probe_1",
     "temperature_probe_2",
@@ -115,11 +114,22 @@ _ALL_DESCRIPTIONS: dict[str, SensorEntityDescription] = {
 }
 
 
-def _sensor_update(
-    coordinator_data: tuple[bluetooth.BluetoothServiceInfoBleak, dict[str, Any] | None],
+def _passthrough_update(
+    update: PassiveBluetoothDataUpdate,
 ) -> PassiveBluetoothDataUpdate:
-    """Build a sensor PassiveBluetoothDataUpdate from coordinator data."""
-    service_info, parsed = coordinator_data
+    """Return the update unchanged.
+
+    PassiveBluetoothDataProcessor requires a callable to transform updates.
+    All transformation is already done in _parse_update, so this is a no-op.
+    """
+    return update
+
+
+def _parse_update(
+    service_info: bluetooth.BluetoothServiceInfoBleak,
+) -> PassiveBluetoothDataUpdate:
+    """Parse a BLE advertisement into a PassiveBluetoothDataUpdate."""
+    parsed = parse_advertisement(service_info.manufacturer_data)
 
     entity_descriptions: dict[PassiveBluetoothEntityKey, SensorEntityDescription] = {}
     entity_data: dict[PassiveBluetoothEntityKey, float | None] = {}
@@ -175,16 +185,25 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Chef iQ sensors from a config entry."""
-    coordinator: PassiveBluetoothProcessorCoordinator = hass.data[DOMAIN][entry.entry_id]
+    address: str = entry.data[CONF_ADDRESS]
 
-    processor = PassiveBluetoothDataProcessor(_sensor_update)
+    coordinator = PassiveBluetoothProcessorCoordinator(
+        hass,
+        _LOGGER,
+        address=address,
+        mode=bluetooth.BluetoothScanningMode.PASSIVE,
+        update_method=_parse_update,
+    )
+
+    processor = PassiveBluetoothDataProcessor(_passthrough_update)
 
     entry.async_on_unload(
         coordinator.async_register_processor(processor, SensorEntityDescription)
     )
+    entry.async_on_unload(coordinator.async_start())
 
     async_add_entities(
-        ChefIQSensor(processor, description, entry.data[CONF_ADDRESS])
+        ChefIQSensor(processor, description, address)
         for description in _ALL_DESCRIPTIONS.values()
     )
 
