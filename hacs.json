@@ -1,5 +1,4 @@
 {
   "name": "Chef iQ",
-  "render_readme": true,
-  "icon": "https://raw.githubusercontent.com/formula97/homeassistant-chefiq/main/icon.png"
+  "render_readme": true
 }
